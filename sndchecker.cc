@@ -5,7 +5,11 @@
 #include <sndfile.hh>
 
 /* 8K chunks vs 1K chunks = about a 4x speedup */
+
 #define		BUFFER_LEN		8192
+
+float threshold = 0.75; // Anything above this threshold, we consider to be "good"
+int  bucket_size = 24000; // number of samples per bucket, should really be derived from file... 
 
 /* track goes here */
 std::vector<float> samples;   
@@ -68,9 +72,6 @@ void analyze_file() {
    *   return this as a score between 0-100%.
    */
 
-  float threshold = 0.75; // Anything above this threshold, we consider to be "good"
-
-  int bucket_size;
   int bucket_pos;
   int buckets_good = 0;
   float this_bucket_total = 0;
@@ -80,7 +81,6 @@ void analyze_file() {
   printf("samples: %ld\n", samples.size());
 
   /* 24000 samples = 500 mS @ 44.KHz */
-  bucket_size = 24000;
   bucket_pos = 0;
   buckets = samples.size() / bucket_size;
   printf("buckets: %ld\n", buckets);
@@ -96,7 +96,7 @@ void analyze_file() {
 
       //      printf("rms: %f\n", rms);
 
-      if (rms > 0.15) { 
+      if (rms > threshold) { 
 	buckets_good++;
       }
 
