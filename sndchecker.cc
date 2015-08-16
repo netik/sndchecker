@@ -86,6 +86,7 @@ void analyze_file() {
   printf("buckets: %ld\n", buckets);
   
   // for all samples
+    printf("http://sparksvg.me/bar.svg?");
   for (int i=0; i < samples.size(); i++) { 
 
     this_bucket_total += std::abs(samples[i]) * std::abs(samples[i]);
@@ -94,7 +95,7 @@ void analyze_file() {
     if (bucket_pos > bucket_size) {
       float rms = sqrt((this_bucket_total / bucket_size)); 
 
-      //      printf("rms: %f\n", rms);
+      printf("%d,", int(rms*1000));
 
       if (rms > threshold) { 
 	buckets_good++;
