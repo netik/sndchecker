@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <cmath>        // std::abs
 #include <vector> 
+#include <numeric>
 #include <sndfile.hh>
 
 /* 8K chunks vs 1K chunks = about a 4x speedup */
@@ -9,10 +10,13 @@
 #define		BUFFER_LEN		8192
 
 float threshold = 0.13;   // Anything above this loudness threshold, we consider to be "good"
-int  bucket_size = 24000; // number of samples per bucket, should really be derived from file... 
+
+/* 22000 samples = 500 mS @ 44.KHz */
+int bucket_size = 22000; // number of samples per bucket, should really be derived from file... 
 
 /* track goes here */
-std::vector<float> samples;   
+std::vector<float> samples;
+std::vector<float> rms_buckets;
 
 static void read_file (const char * fname) 
 {	 
@@ -21,8 +25,8 @@ static void read_file (const char * fname)
 
   int channels = mySndfileHandle.channels(); 
   int frames = mySndfileHandle.frames(); 
-
-  printf("%d channels, %d frames\n" , channels, frames);
+  printf(" thresh: %f\nbkt_siz: %d\n" , threshold, bucket_size);
+  printf("   chan: %d\n frames: %d\n" , channels, frames);
 
   // We'll load in BUFFER_LEN samples at a time, and stuff them into a buffer 
   // We need to ensure that the buffer is long enough to hold all of the 
@@ -70,6 +74,10 @@ void analyze_file() {
    *     reset the per-bucket counter
    *   divide the total number of buckets by the successful buckets.
    *   return this as a score between 0-100%.
+   *
+   * Alternate Ideas instead of "loudness thresholds": 
+   *  - Use Standard deviation - tried it, not goot enough.
+   *  - IQR, kurtosis, entropy, 95% range
    */
 
   int bucket_pos;
@@ -80,13 +88,11 @@ void analyze_file() {
 
   printf("samples: %ld\n", samples.size());
 
-  /* 24000 samples = 500 mS @ 44.KHz */
   bucket_pos = 0;
   buckets = samples.size() / bucket_size;
   printf("buckets: %ld\n", buckets);
   
   // for all samples
-    printf("http://sparksvg.me/bar.svg?");
   for (int i=0; i < samples.size(); i++) { 
 
     this_bucket_total += std::abs(samples[i]) * std::abs(samples[i]);
@@ -95,20 +101,20 @@ void analyze_file() {
     if (bucket_pos > bucket_size) {
       float rms = sqrt((this_bucket_total / bucket_size)); 
 
-      printf("%d,", int(rms*1000));
-
       if (rms > threshold) { 
 	buckets_good++;
       }
+
+      /* stash away the bucket data for further analysis */
+      rms_buckets.push_back(rms);
 
       /* reset */
       bucket_pos = 0;
       this_bucket_total = 0;
 
     }
-
   }
-  printf("   good: %i\n    pct: %.02f %%\n" , buckets_good, ( (float)buckets_good/buckets ) * 100);
+  printf("   good: %i\npctgood: %.02f %%\n" , buckets_good, ( (float)buckets_good/buckets ) * 100);
 
 };
 
@@ -135,7 +141,66 @@ int main (int argc,char * argv[])
   read_file (argv[1]) ;
   analyze_file();
 
-  puts ("Done.\n") ;
+  /* Get min, max, stddev */
+  float maxrms = 0;
+  float minrms = 99999;
+  float avgrms = 0;
+  float totrms = 0;
+  float sum = std::accumulate(rms_buckets.begin(), rms_buckets.end(), 0.0);
+
+  for (int i=0; i < rms_buckets.size(); i++) { 
+      if (rms_buckets[i] > maxrms) { maxrms = rms_buckets[i]; };
+      if (rms_buckets[i] < minrms) { minrms = rms_buckets[i]; };
+  }
+  avgrms = sum / rms_buckets.size();
+
+  printf(" minrms: %f\n maxrms: %f\n avgrms: %f\n", minrms, maxrms, avgrms);
+
+  /* let's try this the c++ way... */
+
+  float mean = sum / rms_buckets.size();
+  float sq_sum = std::inner_product(rms_buckets.begin(), rms_buckets.end(), rms_buckets.begin(), 0.0);
+  float stddev = std::sqrt(sq_sum / rms_buckets.size() - mean * mean);
+
+  printf("   mean: %f\n stddev: %f\n", mean, stddev);
+  printf(" minrms: %f\n maxrms: %f\n avgrms: %f\n", minrms, maxrms, avgrms);
+
+  /* variance */
+  float variance;
+  for (int i = 0; i < rms_buckets.size(); i++)
+    {
+      variance += (rms_buckets[i] - mean)*(rms_buckets[i] - mean);
+    }
+  variance = (double)(variance)/(rms_buckets.size() - 1);
+  printf("variance: %f\n", variance);
+
+  /* skewnewss */
+  float S = (float)sqrt(variance);
+  float skewness;
+
+  for (int i = 0; i < rms_buckets.size(); i++)
+    skewness += (rms_buckets[i] - mean)*(rms_buckets[i] - mean)*(rms_buckets[i] - mean);
+  skewness = skewness/(rms_buckets.size() * S * S * S);
+  printf("skewness: %f\n", skewness);
+
+  /* kurtosis */
+  float k;
+  for (int i = 0; i < rms_buckets.size(); i++)
+    k += (rms_buckets[i] - mean)*(rms_buckets[i] - mean)*(rms_buckets[i] - mean)*(rms_buckets[i] - mean);
+  k = k/(rms_buckets.size()*S*S*S*S);
+  k -= 3; 
+  printf("kurtosis: %f\n", k);
+  
+  /* dump the SVG bucket list */
+  printf("\nRMS Buckets\n\n");
+  printf("http://sparksvg.me/bar.svg?");
+  for (int i=0; i < rms_buckets.size(); i++) { 
+    printf("%d", int(rms_buckets[i]*1000));
+    if (i+1 < rms_buckets.size()) { printf(","); }
+  }
+
+
+  puts ("\n\nDone.\n") ;
   return 0 ;
 } /* main */
 

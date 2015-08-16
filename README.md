@@ -1,6 +1,15 @@
 # sndchecker
 Experimental code to see if it's possible to determine if a sound file is of "low quality" or "poor dynamic range."
 
+# Usage
+```
+# ./sndchecker filename.wav threshold samples
+  ./sndchecker filename.wav 0.1 12000
+```
+
+The two parameters are the RMS threshold and the number of samples to use per bucket
+
+
 # Algorithm
 ```
 divide up the track into a number of buckets, around 500mS / bucket
@@ -13,7 +22,7 @@ divide the total number of buckets by the "good" buckets.
   return this as a score between 0-100%
 ```
 
-We consider anything < 30% to be a "bad track" with serious fluctuations in loudness.
+We consider anything < 40% to be a "bad track" with many quiet passages.
 
 # False Positives
 * Songs with many changes in loudness
