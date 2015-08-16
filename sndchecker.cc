@@ -8,7 +8,7 @@
 
 #define		BUFFER_LEN		8192
 
-float threshold = 0.75; // Anything above this threshold, we consider to be "good"
+float threshold = 0.13;   // Anything above this loudness threshold, we consider to be "good"
 int  bucket_size = 24000; // number of samples per bucket, should really be derived from file... 
 
 /* track goes here */
@@ -114,9 +114,21 @@ void analyze_file() {
 int main (int argc,char * argv[])
 {
 
-  if (argc != 2) { 
-    printf("\nUsage: %s soundfile\n", argv[0]);
+  if ((argc < 2) || (argc > 4)) { 
+    printf("\nUsage: %s soundfile [threshold] [samples_per_bucket]\n", argv[0]);
+    printf("   threshold          RMS threshold for a good bucket (default %0.3f)\n", threshold);
+    printf("   samples_per_bucket Samples per bucket (default %d)\n\n", bucket_size);
     exit(1);
+  }
+
+  if (argc >= 3) { 
+    std::string str (argv[2]);
+    threshold = std::stof(str);
+  }
+
+  if (argc == 4) { 
+    std::string str (argv[3]);
+    bucket_size = std::stoi(str);
   }
 
   read_file (argv[1]) ;
