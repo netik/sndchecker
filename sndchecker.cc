@@ -4,6 +4,9 @@
 #include <vector> 
 #include <numeric>
 #include <sndfile.hh>
+#include <getopt.h>
+#include <sys/stat.h>
+#include <string.h>
 
 /* 8K chunks vs 1K chunks = about a 4x speedup */
 
@@ -12,21 +15,39 @@
 float threshold = 0.13;   // Anything above this loudness threshold, we consider to be "good"
 
 /* 22000 samples = 500 mS @ 44.KHz */
-int bucket_size = 22000; // number of samples per bucket, should really be derived from file... 
+int bucket_size = 22000;  // number of samples per bucket, should really be derived from file... 
 
 /* track goes here */
 std::vector<float> samples;
 std::vector<float> rms_buckets;
 
-static void read_file (const char * fname) 
+/* options */
+int opt_v = 0;
+int opt_j = 0;
+int opt_h = 0;
+
+inline bool file_exists (const char name[]) { 
+  struct stat buffer;   
+  return (stat (name, &buffer) == 0); 
+}
+
+static bool read_file (const char * fname) 
 {	 
-  SndfileHandle mySndfileHandle; 
-  mySndfileHandle = SndfileHandle(fname); 
+  SndfileHandle mySndfileHandle;
+
+  if (!file_exists(fname)) {
+    return false;
+  }
+
+  mySndfileHandle = SndfileHandle(fname);
 
   int channels = mySndfileHandle.channels(); 
   int frames = mySndfileHandle.frames(); 
-  printf(" thresh: %f\nbkt_siz: %d\n" , threshold, bucket_size);
-  printf("   chan: %d\n frames: %d\n" , channels, frames);
+
+  if (opt_v) { 
+    printf(" thresh: %f\nbkt_siz: %d\n" , threshold, bucket_size);
+    printf("   chan: %d\n frames: %d\n" , channels, frames);
+  }
 
   // We'll load in BUFFER_LEN samples at a time, and stuff them into a buffer 
   // We need to ensure that the buffer is long enough to hold all of the 
@@ -80,17 +101,19 @@ void analyze_file() {
    *  - IQR, kurtosis, entropy, 95% range
    */
 
-  int bucket_pos;
-  int buckets_good = 0;
   float this_bucket_total = 0;
 
   unsigned long buckets;
-
-  printf("samples: %ld\n", samples.size());
+  unsigned long buckets_good = 0;
+  unsigned long bucket_pos;
 
   bucket_pos = 0;
   buckets = samples.size() / bucket_size;
-  printf("buckets: %ld\n", buckets);
+
+  if (opt_v) { 
+    printf("samples: %ld\n", samples.size());
+    printf("buckets: %ld\n", buckets);
+  }
   
   // for all samples
   for (int i=0; i < samples.size(); i++) { 
@@ -114,31 +137,96 @@ void analyze_file() {
 
     }
   }
-  printf("   good: %i\npctgood: %.02f %%\n" , buckets_good, ( (float)buckets_good/buckets ) * 100);
+
+  if (opt_j) { 
+    printf("{ \"buckets\":\"%lu\", \"good\":\"%lu\", \"pctgood\":\"%.02f\" }\n" , buckets,  buckets_good, ( (float)buckets_good/buckets ) * 100);
+  } else { 
+    printf("   good: %lu\npctgood: %.02f %%\n" , buckets_good, ( (float)buckets_good/buckets ) * 100);
+  }
 
 };
 
-int main (int argc,char * argv[])
+void usage(char *pgmname) { 
+  printf("Usage: %s [options] filename\n",pgmname);
+  printf("\n");
+  printf("sndchecker returns a score indicating how many buckets in a file\n");
+  printf("conform to a specified loudness threshold.\n");
+  printf("\n");
+  printf("  --threshold  power limit for a \"good\" bucket 0.0 to 1.0 [defaut: 0.13]\n");
+  printf("  --size       samples per bucket [defaut: 22000 / 500mS at 44.1Khz]\n");
+  printf("  --json       return score in json\n");
+  printf("  --histogram  return a URL with the bucket list for graphing\n");
+  printf("  --verbose    verbose logging and statistics\n");
+  printf("\n");
+  exit(1);
+}
+
+int main (int argc, char **argv)
 {
 
-  if ((argc < 2) || (argc > 4)) { 
-    printf("\nUsage: %s soundfile [threshold] [samples_per_bucket]\n", argv[0]);
-    printf("   threshold          RMS threshold for a good bucket (default %0.3f)\n", threshold);
-    printf("   samples_per_bucket Samples per bucket (default %d)\n\n", bucket_size);
-    exit(1);
+  int c;
+
+  while (1) {
+    std::string str;
+    int this_option_optind = optind ? optind : 1;
+    int option_index = 0;
+    
+    static struct option long_options[] = {
+      {"threshold",  required_argument, 0, 't' },
+      {"size",       required_argument, 0, 's' },
+      {"verbose",    no_argument,       0, 'v' },
+      {"histogram",  no_argument,       0, 'h' },
+      {"json",       no_argument,       0, 'j' },
+      {"file",       required_argument, 0,  0 },
+      {0,         0,                 0,  0 }
+    };
+
+    c = getopt_long(argc, argv, "vhjt:s:f:",
+                    long_options, &option_index);
+    if (c == -1)
+      break;
+
+    switch (c) {
+    case 'v':
+      opt_v = 1;
+      break;
+
+    case 'h':
+      opt_h = 1;
+      break;
+
+    case 'j':
+      opt_j = 1;
+      break;
+
+    case 't':
+      str.assign(optarg, strlen(optarg));
+      threshold = std::stof(str);
+      break;
+
+    case 's':
+      str.assign(optarg, strlen(optarg));
+      bucket_size = std::stoi(str);
+      break;
+
+    default:
+      printf("Invalid argument -%c.\n", c);
+      usage(argv[0]);
+      break;
+    }
   }
 
-  if (argc >= 3) { 
-    std::string str (argv[2]);
-    threshold = std::stof(str);
+  /* done with opts */
+  if (argv[optind] == NULL) { 
+    printf("filename missing.\n");
+    usage(argv[0]);
   }
 
-  if (argc == 4) { 
-    std::string str (argv[3]);
-    bucket_size = std::stoi(str);
+  if (! read_file(argv[optind]) ) { 
+    printf("File %s does not exist.\n", argv[optind]);
+    exit(127);
   }
 
-  read_file (argv[1]) ;
   analyze_file();
 
   /* Get min, max, stddev */
@@ -154,16 +242,12 @@ int main (int argc,char * argv[])
   }
   avgrms = sum / rms_buckets.size();
 
-  printf(" minrms: %f\n maxrms: %f\n avgrms: %f\n", minrms, maxrms, avgrms);
 
   /* let's try this the c++ way... */
 
   float mean = sum / rms_buckets.size();
   float sq_sum = std::inner_product(rms_buckets.begin(), rms_buckets.end(), rms_buckets.begin(), 0.0);
   float stddev = std::sqrt(sq_sum / rms_buckets.size() - mean * mean);
-
-  printf("   mean: %f\n stddev: %f\n", mean, stddev);
-  printf(" minrms: %f\n maxrms: %f\n avgrms: %f\n", minrms, maxrms, avgrms);
 
   /* variance */
   float variance;
@@ -172,7 +256,6 @@ int main (int argc,char * argv[])
       variance += (rms_buckets[i] - mean)*(rms_buckets[i] - mean);
     }
   variance = (double)(variance)/(rms_buckets.size() - 1);
-  printf("variance: %f\n", variance);
 
   /* skewnewss */
   float S = (float)sqrt(variance);
@@ -181,26 +264,32 @@ int main (int argc,char * argv[])
   for (int i = 0; i < rms_buckets.size(); i++)
     skewness += (rms_buckets[i] - mean)*(rms_buckets[i] - mean)*(rms_buckets[i] - mean);
   skewness = skewness/(rms_buckets.size() * S * S * S);
-  printf("skewness: %f\n", skewness);
-
+  
   /* kurtosis */
   float k;
   for (int i = 0; i < rms_buckets.size(); i++)
     k += (rms_buckets[i] - mean)*(rms_buckets[i] - mean)*(rms_buckets[i] - mean)*(rms_buckets[i] - mean);
   k = k/(rms_buckets.size()*S*S*S*S);
   k -= 3; 
-  printf("kurtosis: %f\n", k);
   
-  /* dump the SVG bucket list */
-  printf("\nRMS Buckets\n\n");
-  printf("http://sparksvg.me/bar.svg?");
-  for (int i=0; i < rms_buckets.size(); i++) { 
-    printf("%d", int(rms_buckets[i]*1000));
-    if (i+1 < rms_buckets.size()) { printf(","); }
+  if (opt_v) { 
+    printf("   mean: %f\n stddev: %f\n", mean, stddev);
+    printf(" minrms: %f\n maxrms: %f\n avgrms: %f\n", minrms, maxrms, avgrms);
+    printf("variance: %f\n", variance);
+    printf("skewness: %f\n", skewness);
+    printf("kurtosis: %f\n", k);
   }
 
+  /* dump the SVG bucket list */
+  if (opt_h) { 
+    printf("\nRMS Buckets\n\n");
+    printf("http://sparksvg.me/bar.svg?");
+    for (int i=0; i < rms_buckets.size(); i++) { 
+      printf("%d", int(rms_buckets[i]*1000));
+      if (i+1 < rms_buckets.size()) { printf(","); }
+    }
+  }
 
-  puts ("\n\nDone.\n") ;
   return 0 ;
 } /* main */
 
