@@ -1,14 +1,18 @@
 # sndchecker
 Experimental code to see if it's possible to determine if a sound file is of "low quality" or "poor dynamic range."
 
-# Usage
 ```
-# ./sndchecker filename.wav threshold samples
-  ./sndchecker filename.wav 0.1 12000
+Usage: ./sndchecker [options] filename
+
+sndchecker returns a score indicating how many buckets in a file
+conform to a specified loudness threshold.
+
+  --threshold  power limit for a "good" bucket 0.0 to 1.0 [defaut: 0.13]
+  --size       samples per bucket [defaut: 22000 / 500mS at 44.1Khz]
+  --json       return score in json
+  --histogram  return a URL with the bucket list for graphing
+  --verbose    verbose logging and statistics
 ```
-
-The two parameters are the RMS threshold and the number of samples to use per bucket
-
 
 # Algorithm
 ```
